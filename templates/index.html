@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Divisor de PDF Pro - Web Service</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>✂️ Divisor de PDF <span class="gradient-text">Pro</span></h1>
+            <p>Divide archivos PDF pesados en partes ligeras para tus trámites.</p>
+        </header>
+
+        <main>
+            <form id="upload-form" class="glass-card">
+                <div class="drop-zone" id="drop-zone">
+                    <div class="drop-zone-content">
+                        <div class="icon">📂</div>
+                        <p>Arrastra tu PDF aquí o haz clic para seleccionar</p>
+                        <span id="file-name" class="file-name">Ningún archivo seleccionado</span>
+                    </div>
+                    <input type="file" name="pdf_file" id="file-input" accept="application/pdf" hidden>
+                </div>
+
+                <div class="config-section">
+                    <label for="max_size">
+                        <span>Tamaño máximo por parte (MB)</span>
+                        <div class="input-wrapper">
+                            <input type="number" name="max_size" id="max_size" value="4.0" step="0.1" min="0.1">
+                            <span class="unit">MB</span>
+                        </div>
+                    </label>
+                </div>
+
+                <button type="submit" id="submit-btn" class="primary-btn">
+                    <span class="btn-text">Dividir y Descargar ZIP</span>
+                    <div class="loader" id="loader"></div>
+                </button>
+            </form>
+
+            <div id="status-message" class="status-message hidden"></div>
+        </main>
+
+        <footer>
+            <p>&copy; 2025 Divisor de PDF Pro. Desarrollado para Kyeb.</p>
+        </footer>
+    </div>
+    <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+</body>
+</html>
