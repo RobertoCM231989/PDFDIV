@@ -7,6 +7,9 @@ document.addEventListener('DOMContentLoaded', () => {
     const loader = document.getElementById('loader');
     const btnText = submitBtn.querySelector('.btn-text');
     const statusMsg = document.getElementById('status-message');
+    const progressContainer = document.getElementById('progress-container');
+    const progressBarFill = document.getElementById('progress-bar-fill');
+    const progressText = document.getElementById('progress-text');
 
     // Drag & Drop events
     dropZone.addEventListener('click', () => fileInput.click());
@@ -43,7 +46,89 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    // Form submission
+    // Comprehensive Job Management
+    async function manageJob(formData) {
+        // 1. Upload Phase
+        const jobId = await uploadFile(formData);
+        if (!jobId) return;
+
+        // 2. Start SSE Progress Listening
+        const progressSource = new EventSource(`/progress/${jobId}`);
+
+        progressSource.onmessage = (event) => {
+            const data = JSON.parse(event.data);
+
+            if (data.status === 'processing') {
+                progressBarFill.style.width = data.progress + '%';
+                progressText.innerText = `Dividiendo PDF... ${data.progress}%`;
+                btnText.innerText = 'Dividiendo...';
+            } else if (data.status === 'completed') {
+                progressSource.close();
+                showStatus('¡Procesado completo! Iniciando descarga...', 'success');
+                progressContainer.classList.add('hidden');
+                triggerDownload(jobId);
+                resetUI();
+            } else if (data.status === 'error') {
+                progressSource.close();
+                showStatus('Error: ' + data.error, 'error');
+                progressContainer.classList.add('hidden');
+                resetUI();
+            }
+        };
+
+        // 3. Trigger Processing
+        await fetch(`/process/${jobId}`, { method: 'POST' });
+    }
+
+    function uploadFile(formData) {
+        return new Promise((resolve) => {
+            const xhr = new XMLHttpRequest();
+
+            xhr.upload.addEventListener('progress', (e) => {
+                if (e.lengthComputable) {
+                    const percent = Math.round((e.loaded / e.total) * 100);
+                    progressBarFill.style.width = percent + '%';
+                    progressText.innerText = `Subiendo archivo... ${percent}%`;
+                }
+            });
+
+            xhr.onload = () => {
+                if (xhr.status === 200) {
+                    const data = JSON.parse(xhr.responseText);
+                    resolve(data.job_id);
+                } else {
+                    showStatus('Error al subir el archivo', 'error');
+                    resetUI();
+                    resolve(null);
+                }
+            };
+
+            xhr.onerror = () => {
+                showStatus('Error de red al subir', 'error');
+                resetUI();
+                resolve(null);
+            };
+
+            xhr.open('POST', '/upload');
+            xhr.send(formData);
+        });
+    }
+
+    function triggerDownload(jobId) {
+        const a = document.createElement('a');
+        a.href = `/download/${jobId}`;
+        a.download = `${fileInput.files[0].name.split('.')[0]}_dividido.zip`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+    }
+
+    function resetUI() {
+        submitBtn.disabled = false;
+        loader.style.display = 'none';
+        btnText.innerText = 'Dividir y Descargar ZIP';
+    }
+
     uploadForm.addEventListener('submit', (e) => {
         e.preventDefault();
 
@@ -54,77 +139,13 @@ document.addEventListener('DOMContentLoaded', () => {
 
         const formData = new FormData(uploadForm);
 
-        // UI Loading state
         submitBtn.disabled = true;
         loader.style.display = 'block';
-        btnText.innerText = 'Subiendo...';
+        btnText.innerText = 'Enviando...';
         statusMsg.classList.add('hidden');
-
-        // Reset and show progress bar
-        const progressContainer = document.getElementById('progress-container');
-        const progressBarFill = document.getElementById('progress-bar-fill');
-        const progressText = document.getElementById('progress-text');
-
         progressContainer.classList.remove('hidden');
-        progressBarFill.style.width = '0%';
-        progressText.innerText = 'Preparando subida... 0%';
 
-        const xhr = new XMLHttpRequest();
-
-        // Track upload progress
-        xhr.upload.addEventListener('progress', (e) => {
-            if (e.lengthComputable) {
-                const percent = Math.round((e.loaded / e.total) * 100);
-                progressBarFill.style.width = percent + '%';
-                progressText.innerText = `Subiendo... ${percent}%`;
-
-                if (percent === 100) {
-                    progressText.innerText = 'Subida completa. Procesando PDF...';
-                    btnText.innerText = 'Procesando...';
-                }
-            }
-        });
-
-        xhr.onload = function () {
-            submitBtn.disabled = false;
-            loader.style.display = 'none';
-            btnText.innerText = 'Dividir y Descargar ZIP';
-
-            if (xhr.status === 200) {
-                // Success: Get blob and download
-                const blob = new Blob([xhr.response], { type: 'application/zip' });
-                const url = window.URL.createObjectURL(blob);
-                const a = document.createElement('a');
-                a.href = url;
-                a.download = `${fileInput.files[0].name.split('.')[0]}_dividido.zip`;
-                document.body.appendChild(a);
-                a.click();
-                window.URL.revokeObjectURL(url);
-                showStatus('¡PDF dividido con éxito! Descargando ZIP...', 'success');
-                progressContainer.classList.add('hidden');
-            } else {
-                // Error handling
-                try {
-                    const errorData = JSON.parse(xhr.responseText);
-                    showStatus(errorData.error || 'Error al procesar el PDF', 'error');
-                } catch (e) {
-                    showStatus('Error inesperado en el servidor', 'error');
-                }
-                progressContainer.classList.add('hidden');
-            }
-        };
-
-        xhr.onerror = function () {
-            submitBtn.disabled = false;
-            loader.style.display = 'none';
-            btnText.innerText = 'Dividir y Descargar ZIP';
-            showStatus('Error de conexión con el servidor', 'error');
-            progressContainer.classList.add('hidden');
-        };
-
-        xhr.open('POST', '/split');
-        xhr.responseType = 'blob';
-        xhr.send(formData);
+        manageJob(formData);
     });
 
     function showStatus(msg, type) {

@@ -2,10 +2,13 @@ import os
 import io
 import fitz  # PyMuPDF
 
-def split_pdf(input_stream, max_size_mb):
+def split_pdf(input_stream, max_size_mb, progress_callback=None):
     """
     Split PDF using PyMuPDF (fitz) - significantly faster than pypdf.
     """
+    if progress_callback:
+        progress_callback(0)
+        
     print(f"DEBUG: Starting split_pdf with max_size_mb={max_size_mb}")
     
     # Load PDF from stream
@@ -23,6 +26,11 @@ def split_pdf(input_stream, max_size_mb):
     for i in range(total_pages):
         # Add page to current part
         current_doc.insert_pdf(doc, from_page=i, to_page=i)
+        
+        # Report progress
+        if progress_callback:
+            percent = int(((i + 1) / total_pages) * 100)
+            progress_callback(percent)
         
         # Check size periodically (every 5 pages or at the end)
         if (i + 1) % 5 == 0 or i == total_pages - 1:
