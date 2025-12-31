@@ -52,29 +52,32 @@ document.addEventListener('DOMContentLoaded', () => {
         const jobId = await uploadFile(formData);
         if (!jobId) return;
 
-        // 2. Start SSE Progress Listening
-        const progressSource = new EventSource(`/progress/${jobId}`);
+        // 2. Start Polling for Progress
+        const pollInterval = setInterval(async () => {
+            try {
+                const response = await fetch(`/progress/${jobId}`);
+                const data = await response.json();
 
-        progressSource.onmessage = (event) => {
-            const data = JSON.parse(event.data);
-
-            if (data.status === 'processing') {
-                progressBarFill.style.width = data.progress + '%';
-                progressText.innerText = `Dividiendo PDF... ${data.progress}%`;
-                btnText.innerText = 'Dividiendo...';
-            } else if (data.status === 'completed') {
-                progressSource.close();
-                showStatus('¡Procesado completo! Iniciando descarga...', 'success');
-                progressContainer.classList.add('hidden');
-                triggerDownload(jobId);
-                resetUI();
-            } else if (data.status === 'error') {
-                progressSource.close();
-                showStatus('Error: ' + data.error, 'error');
-                progressContainer.classList.add('hidden');
-                resetUI();
+                if (data.status === 'processing') {
+                    progressBarFill.style.width = data.progress + '%';
+                    progressText.innerText = `Dividiendo PDF... ${data.progress}%`;
+                    btnText.innerText = 'Dividiendo...';
+                } else if (data.status === 'completed') {
+                    clearInterval(pollInterval);
+                    showStatus('¡Procesado completo! Iniciando descarga...', 'success');
+                    progressContainer.classList.add('hidden');
+                    triggerDownload(jobId);
+                    resetUI();
+                } else if (data.status === 'error') {
+                    clearInterval(pollInterval);
+                    showStatus('Error: ' + data.error, 'error');
+                    progressContainer.classList.add('hidden');
+                    resetUI();
+                }
+            } catch (e) {
+                console.error("Error polling progress:", e);
             }
-        };
+        }, 1000);
 
         // 3. Trigger Processing
         await fetch(`/process/${jobId}`, { method: 'POST' });

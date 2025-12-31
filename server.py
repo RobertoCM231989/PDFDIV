@@ -50,27 +50,15 @@ def upload():
 
 @app.route('/progress/<job_id>')
 def progress(job_id):
-    def generate():
-        while True:
-            job = jobs.get(job_id)
-            if not job:
-                break
-            
-            yield f"data: {json_dump(job)}\n\n"
-            
-            if job['status'] in ['completed', 'error']:
-                break
-            time.sleep(0.5)
-            
-    def json_dump(data):
-        import json
-        return json.dumps({
-            'status': data['status'],
-            'progress': data['progress'],
-            'error': data.get('error_msg')
-        })
-
-    return Response(generate(), mimetype='text/event-stream')
+    job = jobs.get(job_id)
+    if not job:
+        return jsonify({"error": "Job no encontrado"}), 404
+    
+    return jsonify({
+        'status': job['status'],
+        'progress': job['progress'],
+        'error': job.get('error_msg')
+    })
 
 @app.route('/process/<job_id>', methods=['POST'])
 def process(job_id):
