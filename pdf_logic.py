@@ -1,95 +1,69 @@
 import os
 import io
-from pypdf import PdfReader, PdfWriter
+import fitz  # PyMuPDF
 
 def split_pdf(input_stream, max_size_mb):
     """
-    ULTRA-OPTIMIZED PDF Splitter.
-    Minimizes costly PDF writing operations by estimating page sizes
-    and using aggressive chunking.
+    Split PDF using PyMuPDF (fitz) - significantly faster than pypdf.
     """
-    reader = PdfReader(input_stream)
-    total_pages = len(reader.pages)
+    print(f"DEBUG: Starting split_pdf with max_size_mb={max_size_mb}")
+    
+    # Load PDF from stream
+    doc = fitz.open(stream=input_stream, filetype="pdf")
+    total_pages = len(doc)
     max_size_bytes = max_size_mb * 1024 * 1024
-    safety_factor = 0.96
+    safety_factor = 0.95
     
     parts = []
-    current_writer = PdfWriter()
-    current_pages = []
-    
-    # 1. Estimation Phase: Get total file size to estimate avg page size
-    input_stream.seek(0, os.SEEK_END)
-    total_file_size = input_stream.tell()
-    input_stream.seek(0)
-    avg_page_size = total_file_size / total_pages if total_pages > 0 else 0
-    
-    # 2. Adaptive Chunking:
-    # If avg page is 100KB and limit is 4MB, we can safely jump ~30 pages.
-    # We use a conservative multiplier of 0.5 for the jump.
-    jump_size = max(1, int((max_size_bytes / (avg_page_size + 1)) * 0.4))
-    
-    i = 0
+    current_doc = fitz.open()
     part_num = 1
     
-    while i < total_pages:
-        # Determine how many pages to add in this batch
-        remaining_in_part = total_pages - i
-        batch_size = min(jump_size, remaining_in_part)
+    print(f"DEBUG: PDF has {total_pages} pages")
+    
+    for i in range(total_pages):
+        # Add page to current part
+        current_doc.insert_pdf(doc, from_page=i, to_page=i)
         
-        # Add the batch
-        for _ in range(batch_size):
-            current_writer.add_page(reader.pages[i])
-            current_pages.append(i)
-            i += 1
+        # Check size periodically (every 5 pages or at the end)
+        if (i + 1) % 5 == 0 or i == total_pages - 1:
+            buffer = current_doc.tobytes()
+            current_size = len(buffer)
             
-        # Check size only after the batch
-        buffer = io.BytesIO()
-        current_writer.write(buffer)
-        current_size = len(buffer.getvalue())
-        
-        # If we went over, we backtrack only ONE batch and then go one by one
-        if current_size > max_size_bytes * safety_factor:
-            # Backtrack index
-            i -= batch_size
-            # Rebuild writer minus the last batch
-            current_writer = PdfWriter()
-            for _ in range(len(current_pages) - batch_size):
-                p_idx = current_pages.pop(0) # Keep older pages
-                current_writer.add_page(reader.pages[p_idx])
+            # If over limit, backtrack
+            if current_size > max_size_bytes * safety_factor:
+                # If it's just one page and it's over, we must send it
+                if len(current_doc) > 1:
+                    # Remove the last 5 pages added and do them one by one
+                    # Simplified logic for fast response:
+                    # Actually, PyMuPDF is so fast we can just check more often
+                    # or do a more precise split.
+                    
+                    # Backtrack: Rebuild part without the last batch
+                    # But let's keep it simple: just close this part BEFORE the batch
+                    # if the batch makes it too big.
+                    
+                    # More precise: remove pages until it fits
+                    while len(current_doc) > 1 and len(buffer) > max_size_bytes * safety_factor:
+                        current_doc.delete_page(len(current_doc) - 1)
+                        buffer = current_doc.tobytes()
+                        i -= 1 # Return index to process these pages in the next part
+                    
+                    parts.append((f"parte_{part_num:03d}.pdf", buffer))
+                    print(f"DEBUG: Saved part {part_num} with {len(current_doc)} pages")
+                    part_num += 1
+                    current_doc = fitz.open()
+                else:
+                    # Single big page
+                    parts.append((f"parte_{part_num:03d}.pdf", buffer))
+                    print(f"DEBUG: Saved part {part_num} (single page)")
+                    part_num += 1
+                    current_doc = fitz.open()
             
-            # Now add one by one until it hits the limit
-            # This is the "safe" fallthrough
-            while i < total_pages:
-                current_writer.add_page(reader.pages[i])
-                
-                temp_buffer = io.BytesIO()
-                current_writer.write(temp_buffer)
-                if len(temp_buffer.getvalue()) > max_size_bytes * safety_factor:
-                    # The page at 'i' made it too big.
-                    # Send what we have (if any)
-                    if len(current_pages) > 0:
-                        parts.append((f"parte_{part_num:03d}.pdf", final_content))
-                        part_num += 1
-                        current_writer = PdfWriter()
-                        current_pages = []
-                        # Note: we DON'T increment 'i' because this page goes to next part
-                        break
-                    else:
-                        # Single page is bigger than limit - accept it and move on
-                        parts.append((f"parte_{part_num:03d}.pdf", temp_buffer.getvalue()))
-                        part_num += 1
-                        current_writer = PdfWriter()
-                        current_pages = []
-                        i += 1
-                        break
-                
-                final_content = temp_buffer.getvalue()
-                current_pages.append(i)
-                i += 1
-        
-        # If we reached the end of the batch and we are still fine, 
-        # but it's the end of the PDF
-        elif i == total_pages:
-            parts.append((f"parte_{part_num:03d}.pdf", buffer.getvalue()))
-            
+            elif i == total_pages - 1:
+                # Final part
+                parts.append((f"parte_{part_num:03d}.pdf", buffer))
+                print(f"DEBUG: Saved final part {part_num}")
+
+    doc.close()
+    print(f"DEBUG: Completed splitting into {len(parts)} parts")
     return parts
