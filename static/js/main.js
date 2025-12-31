@@ -44,7 +44,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // Form submission
-    uploadForm.addEventListener('submit', async (e) => {
+    uploadForm.addEventListener('submit', (e) => {
         e.preventDefault();
 
         if (!fileInput.files.length) {
@@ -53,21 +53,46 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         const formData = new FormData(uploadForm);
-        
+
         // UI Loading state
         submitBtn.disabled = true;
         loader.style.display = 'block';
-        btnText.innerText = 'Procesando...';
+        btnText.innerText = 'Subiendo...';
         statusMsg.classList.add('hidden');
 
-        try {
-            const response = await fetch('/split', {
-                method: 'POST',
-                body: formData
-            });
+        // Reset and show progress bar
+        const progressContainer = document.getElementById('progress-container');
+        const progressBarFill = document.getElementById('progress-bar-fill');
+        const progressText = document.getElementById('progress-text');
 
-            if (response.ok) {
-                const blob = await response.blob();
+        progressContainer.classList.remove('hidden');
+        progressBarFill.style.width = '0%';
+        progressText.innerText = 'Preparando subida... 0%';
+
+        const xhr = new XMLHttpRequest();
+
+        // Track upload progress
+        xhr.upload.addEventListener('progress', (e) => {
+            if (e.lengthComputable) {
+                const percent = Math.round((e.loaded / e.total) * 100);
+                progressBarFill.style.width = percent + '%';
+                progressText.innerText = `Subiendo... ${percent}%`;
+
+                if (percent === 100) {
+                    progressText.innerText = 'Subida completa. Procesando PDF...';
+                    btnText.innerText = 'Procesando...';
+                }
+            }
+        });
+
+        xhr.onload = function () {
+            submitBtn.disabled = false;
+            loader.style.display = 'none';
+            btnText.innerText = 'Dividir y Descargar ZIP';
+
+            if (xhr.status === 200) {
+                // Success: Get blob and download
+                const blob = new Blob([xhr.response], { type: 'application/zip' });
                 const url = window.URL.createObjectURL(blob);
                 const a = document.createElement('a');
                 a.href = url;
@@ -76,18 +101,30 @@ document.addEventListener('DOMContentLoaded', () => {
                 a.click();
                 window.URL.revokeObjectURL(url);
                 showStatus('¡PDF dividido con éxito! Descargando ZIP...', 'success');
+                progressContainer.classList.add('hidden');
             } else {
-                const errorData = await response.json();
-                showStatus(errorData.error || 'Error al procesar el PDF', 'error');
+                // Error handling
+                try {
+                    const errorData = JSON.parse(xhr.responseText);
+                    showStatus(errorData.error || 'Error al procesar el PDF', 'error');
+                } catch (e) {
+                    showStatus('Error inesperado en el servidor', 'error');
+                }
+                progressContainer.classList.add('hidden');
             }
-        } catch (error) {
-            showStatus('Error de conexión con el servidor', 'error');
-            console.error(error);
-        } finally {
+        };
+
+        xhr.onerror = function () {
             submitBtn.disabled = false;
             loader.style.display = 'none';
             btnText.innerText = 'Dividir y Descargar ZIP';
-        }
+            showStatus('Error de conexión con el servidor', 'error');
+            progressContainer.classList.add('hidden');
+        };
+
+        xhr.open('POST', '/split');
+        xhr.responseType = 'blob';
+        xhr.send(formData);
     });
 
     function showStatus(msg, type) {
